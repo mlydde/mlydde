@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音实时对话系统</title>
+    <script src=" https://cdn.tailwindcss.com "></script>
+    <style>
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .animate-pulse {
+            animation: pulse 1.5s infinite;
+        }
+        #waveform {
+            height: 80px;
+            width: 100%;
+            background: linear-gradient(to right, #3b82f6, #8b5cf6);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-md bg-white rounded-lg shadow-md p-6">
+        <!-- 语音波形可视化 -->
+        <div id="waveform" class="mb-6 hidden">
+            <canvas id="visualizer" width="400" height="80"></canvas>
+        </div>
+        
+        <!-- 对话记录显示 -->
+        <div id="chatLog" class="mb-6 h-64 overflow-y-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <p class="text-gray-500 text-center">对话记录将显示在这里...</p>
+        </div>
+        
+        <!-- 控制按钮 -->
+        <div class="flex justify-center space-x-4">
+            <button 
+                id="startBtn" 
+                class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-lg animate-pulse transition-all duration-300"
+            >
+                <i class="fas fa-microphone mr-2"></i>开始对话
+            </button>
+            <button 
+                id="stopBtn" 
+                class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full shadow-lg transition-all duration-300 hidden"
+            >
+                <i class="fas fa-stop mr-2"></i>结束对话
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM元素
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const chatLog = document.getElementById('chatLog');
+            const waveform = document.getElementById('waveform');
+            const canvas = document.getElementById('visualizer');
+            const ctx = canvas.getContext('2d');
+            
+            // 语音识别配置
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert('您的浏览器不支持语音识别功能，请使用Chrome或Edge浏览器');
+                return;
+            }
+            
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'zh-CN';
+            
+            // 音频可视化配置
+            let audioContext;
+            let analyser;
+            let microphone;
+            let dataArray;
+            let animationId;
+            
+            // 开始语音识别
+            startBtn.addEventListener('click', async function() {
+                try {
+                    // 初始化音频上下文
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    
+                    // 获取麦克风权限
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    microphone.connect(analyser);
+                    
+                    dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    
+                    // 显示波形图
+                    waveform.classList.remove('hidden');
+                    drawWaveform();
+                    
+                    // 开始语音识别
+                    recognition.start();
+                    
+                    // 更新UI状态
+                    startBtn.classList.add('hidden');
+                    stopBtn.classList.remove('hidden');
+                    
+                    // 添加系统提示
+                    addMessage('系统', '已开始语音识别，请开始说话...', 'system');
+                } catch (error) {
+                    console.error('麦克风访问错误:', error);
+                    alert('无法访问麦克风: ' + error.message);
+                }
+            });
+            
+            // 停止语音识别
+            stopBtn.addEventListener('click', function() {
+                recognition.stop();
+                if (microphone) {
+                    microphone.disconnect();
+                }
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                }
+                
+                // 更新UI状态
+                stopBtn.classList.add('hidden');
+                startBtn.classList.remove('hidden');
+                waveform.classList.add('hidden');
+                
+                // 添加系统提示
+                addMessage('系统', '语音识别已停止', 'system');
+            });
+            
+            // 语音识别结果处理
+            recognition.onresult = function(event) {
+                let interimTranscript = '';
+                let finalTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                
+                if (finalTranscript) {
+                    addMessage('用户', finalTranscript, 'user');
+                    // 这里可以添加AI回复逻辑
+                    setTimeout(() => {
+                        addMessage('AI', '这是AI的模拟回复', 'ai');
+                    }, 1000);
+                }
+            };
+            
+            // 错误处理
+            recognition.onerror = function(event) {
+                console.error('语音识别错误:', event.error);
+                addMessage('系统', `语音识别错误: ${event.error}`, 'error');
+            };
+            
+            // 添加消息到聊天记录
+            function addMessage(sender, text, type) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `mb-2 p-3 rounded-lg ${type === 'user' ? 'bg-blue-100 ml-auto max-w-xs' : 
+                                      type === 'ai' ? 'bg-purple-100 mr-auto max-w-xs' : 
+                                      type === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-200'}`;
+                
+                const senderSpan = document.createElement('span');
+                senderSpan.className = 'font-bold text-sm';
+                senderSpan.textContent = sender + ': ';
+                
+                const textSpan = document.createElement('span');
+                textSpan.textContent = text;
+                
+                messageDiv.appendChild(senderSpan);
+                messageDiv.appendChild(textSpan);
+                chatLog.appendChild(messageDiv);
+                
+                // 滚动到底部
+                chatLog.scrollTop = chatLog.scrollHeight;
+            }
+            
+            // 绘制音频波形
+            function drawWaveform() {
+                analyser.getByteFrequencyData(dataArray);
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                const barWidth = (canvas.width / analyser.frequencyBinCount) * 2.5;
+                let x = 0;
+                
+                for (let i = 0; i < analyser.frequencyBinCount; i++) {
+                    const barHeight = dataArray[i] / 2;
+                    
+                    ctx.fillStyle = `rgb(50, 50, ${barHeight + 100})`;
+                    ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                    
+                    x += barWidth + 1;
+                }
+                
+                animationId = requestAnimationFrame(drawWaveform);
+            }
+        });
+    </script>
+</body>
+</html>
